@@ -39,8 +39,12 @@ def prompt_variables_template(template: str, variables: dict[str, str]) -> str:
 
 
 def prompt_template(
-    template: str, user_name: Optional[str] = None, user_location: Optional[str] = None
+    template: str, user_name: Optional[str] = None, user_location: Optional[str] = None, user=None
 ) -> str:
+    # Log para debug
+    if "{{SOREN_MEMORIES}}" in template:
+        log.info(f"Processing template with SOREN_MEMORIES variable")
+    
     # Get the current date
     current_date = datetime.now()
 
@@ -69,6 +73,22 @@ def prompt_template(
     else:
         # Replace {{USER_LOCATION}} in the template with "Unknown"
         template = template.replace("{{USER_LOCATION}}", "Unknown")
+
+    # Add support for {{SOREN_MEMORIES}}
+    if "{{SOREN_MEMORIES}}" in template:
+        try:
+            from open_webui.utils.soren_memories import get_soren_memories_cached
+            # Obtener user_id si está disponible
+            user_id = None
+            if user and hasattr(user, 'id'):
+                user_id = user.id
+            
+            memories = get_soren_memories_cached(user_id=user_id)
+            template = template.replace("{{SOREN_MEMORIES}}", memories)
+            log.info(f"SOREN_MEMORIES replaced successfully for user: {user_id}")
+        except Exception as e:
+            log.warning(f"Error loading SOREN_MEMORIES: {e}")
+            template = template.replace("{{SOREN_MEMORIES}}", "No hay memorias disponibles.")
 
     return template
 

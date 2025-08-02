@@ -1096,6 +1096,16 @@ USER_PERMISSIONS_WORKSPACE_MODELS_ACCESS = (
     == "true"
 )
 
+# Soren Memories - Variable dinámica para memorias del sistema
+from open_webui.utils.soren_memories import get_soren_memories_cached
+
+def get_soren_memories():
+    """Obtiene todas las memorias formateadas para usar en prompts"""
+    return get_soren_memories_cached()
+
+# Variable global accesible
+SOREN_MEMORIES = get_soren_memories()
+
 USER_PERMISSIONS_WORKSPACE_KNOWLEDGE_ACCESS = (
     os.environ.get("USER_PERMISSIONS_WORKSPACE_KNOWLEDGE_ACCESS", "False").lower()
     == "true"

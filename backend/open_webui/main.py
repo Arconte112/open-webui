@@ -81,6 +81,7 @@ from open_webui.routers import (
     models,
     knowledge,
     prompts,
+    soren_memories,
     evaluations,
     tools,
     users,
@@ -1202,6 +1203,7 @@ app.include_router(prompts.router, prefix="/api/v1/prompts", tags=["prompts"])
 app.include_router(tools.router, prefix="/api/v1/tools", tags=["tools"])
 
 app.include_router(memories.router, prefix="/api/v1/memories", tags=["memories"])
+app.include_router(soren_memories.router, prefix="/api/v1", tags=["soren_memories"])
 app.include_router(folders.router, prefix="/api/v1/folders", tags=["folders"])
 app.include_router(groups.router, prefix="/api/v1/groups", tags=["groups"])
 app.include_router(files.router, prefix="/api/v1/files", tags=["files"])
