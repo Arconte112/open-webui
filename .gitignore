@@ -307,3 +307,9 @@ dist
 cypress/videos
 cypress/screenshots
 .vscode/settings.json
+
+# Custom memories database
+memories.db
+
+# Claude configuration directory
+.claude/
