@@ -539,6 +539,16 @@ async def lifespan(app: FastAPI):
 
     asyncio.create_task(periodic_usage_pool_cleanup())
 
+    # Initialize Task Scheduler
+    try:
+        from open_webui.services.task_scheduler import OpenWebUIScheduler, scheduler_instance
+        app.state.scheduler_instance = OpenWebUIScheduler()
+        asyncio.create_task(app.state.scheduler_instance.start())
+        log.info("Task scheduler started successfully")
+    except Exception as e:
+        log.error(f"Failed to start task scheduler: {e}")
+        app.state.scheduler_instance = None
+
     if app.state.config.ENABLE_BASE_MODELS_CACHE:
         await get_all_models(
             Request(
@@ -561,6 +571,11 @@ async def lifespan(app: FastAPI):
         )
 
     yield
+
+    # Stop task scheduler if running
+    if hasattr(app.state, "scheduler_instance") and app.state.scheduler_instance:
+        await app.state.scheduler_instance.stop()
+        log.info("Task scheduler stopped")
 
     if hasattr(app.state, "redis_task_command_listener"):
         app.state.redis_task_command_listener.cancel()

@@ -702,3 +702,79 @@ Use the above information to provide personalized responses.
 - `{{USER_NAME}}` - User's name
 - `{{USER_LOCATION}}` - User's location
 - `{{SOREN_MEMORIES}}` - Custom memories from external DB (custom implementation)
+
+## Creating Custom Tools - Best Practices
+
+### Correct Tool Structure
+
+Tools in OpenWebUI should follow this pattern:
+
+```python
+"""
+title: Tool Name
+description: Tool description
+version: 1.0.0
+"""
+
+import sqlite3
+from typing import Optional, List, Dict, Any
+from pydantic import BaseModel  # Only import BaseModel, NOT Field
+
+class Tools:
+    def __init__(self):
+        # Initialize any needed resources
+        # For WSL: use /mnt/c/ paths instead of Windows paths
+        self.db_path = "/mnt/c/Users/path/to/database.db"
+    
+    def my_function(
+        self,
+        required_param: str,  # Required parameters without default
+        optional_param: Optional[str] = None,  # Optional with None default
+        list_param: List[str] = None,  # Lists default to None
+        dict_param: Dict[str, Any] = None,  # Dicts default to None
+        int_param: int = 5,  # Primitives with defaults
+        bool_param: bool = False,
+        __user__: dict = {}  # Always include for user context
+    ) -> str:
+        """
+        Function description for the UI.
+        
+        :param required_param: Description of required parameter
+        :param optional_param: Description of optional parameter
+        :return: String response to display to user
+        """
+        try:
+            # Your implementation here
+            return "Success message"
+        except Exception as e:
+            return f"Error: {str(e)}"
+```
+
+### Common Errors and Solutions
+
+1. **Field() Import Error**: 
+   - ❌ Wrong: `from pydantic import BaseModel, Field`
+   - ✅ Correct: `from pydantic import BaseModel`
+   - Never use `Field()` in function parameters
+
+2. **Parameter Definition Error**:
+   - ❌ Wrong: `param: str = Field(..., description="desc")`
+   - ✅ Correct: `param: str` (put descriptions in docstring)
+
+3. **Path Issues in WSL**:
+   - ❌ Wrong: `r"C:\Users\name\file.db"` (Windows path)
+   - ✅ Correct: `"/mnt/c/Users/name/file.db"` (WSL path)
+
+4. **JSON Serialization Error**:
+   - Error: "Object of type FieldInfo is not JSON serializable"
+   - Solution: Remove all Field() usage from parameters
+
+### Key Points
+
+- Always return strings from tool functions
+- Include try/except blocks for error handling
+- Use docstrings for parameter descriptions
+- Test database connections and file paths
+- For WSL environments, always use `/mnt/c/` paths
+- Optional parameters should default to None or appropriate values
+- The `__user__` parameter provides user context but should not have a description
