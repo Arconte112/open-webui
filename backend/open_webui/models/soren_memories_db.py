@@ -39,7 +39,7 @@ class SorenMemoriesDB:
         # Usar la ruta de la BD de memorias externa
         if db_path is None:
             # Ruta por defecto en Windows WSL
-            db_path = "/mnt/c/Users/raini/Documents/Programas/soren_def/open-webui/memories.db"
+            db_path = "/mnt/c/Users/raini/Documents/Programas/soren_def/memories.db"
         
         self.db_path = db_path
         
