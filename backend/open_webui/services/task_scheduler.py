@@ -12,11 +12,13 @@ from datetime import datetime, timedelta
 from typing import Optional, Dict, Any, List
 import pytz
 import aiohttp
+ 
 
 from open_webui.models.chats import Chats, ChatForm
 from open_webui.models.messages import Messages
 from open_webui.models.users import Users
-from open_webui.socket.main import get_event_emitter
+from open_webui.models.models import Models
+from open_webui.socket.main import get_event_emitter, sio
 
 logger = logging.getLogger(__name__)
 
@@ -98,10 +100,35 @@ class OpenWebUIScheduler:
         logger.info(f"Executing task: {task['task_name']} (ID: {task['id']})")
         
         try:
+            # Get the full model configuration including tools
+            model = Models.get_model_by_id("soren")
+            if not model:
+                logger.error("Soren model not found")
+                raise Exception("Soren model not found")
+            
+            # Extract model metadata including tools
+            model_meta = model.meta if hasattr(model, 'meta') else {}
+            model_params = model.params if hasattr(model, 'params') else {}
+            
+            # Get tool IDs from model metadata
+            tool_ids = []
+            if model_meta:
+                # Check for toolIds (camelCase - used by frontend)
+                if 'toolIds' in model_meta:
+                    tool_ids = model_meta.get('toolIds', [])
+                # Fallback to tool_ids (snake_case)
+                elif 'tool_ids' in model_meta:
+                    tool_ids = model_meta.get('tool_ids', [])
+            
+            # Log the model configuration for debugging
+            logger.info(f"Model meta: {model_meta}")
+            logger.info(f"Model params: {model_params}")
+            logger.info(f"Tool IDs found: {tool_ids}")
+            
             # Create new chat for this task execution
             chat_title = f"📅 {task['task_name']} - {datetime.now(self.timezone).strftime('%Y-%m-%d %H:%M')}"
             
-            # Create chat data
+            # Create chat data with full model configuration
             chat_data = {
                 "title": chat_title,
                 "history": {
@@ -109,9 +136,11 @@ class OpenWebUIScheduler:
                     "currentId": None
                 },
                 "models": ["soren"],  # Using your custom Soren model
-                "params": {},
+                "params": model_params,  # Include model parameters
                 "meta": {
-                    "tags": ["scheduled-task"]
+                    "tags": ["scheduled-task"],
+                    "toolIds": tool_ids,  # Include tool IDs directly in chat meta
+                    "model_meta": model_meta  # Include model metadata with tools
                 }
             }
             
@@ -139,7 +168,8 @@ class OpenWebUIScheduler:
                 "models": ["soren"],
                 "model": "soren",
                 "done": True,
-                "context": None
+                "context": None,
+                "toolIds": tool_ids  # Include tool IDs in the message
             }
             
             # Add message to chat history with proper format
@@ -160,12 +190,17 @@ class OpenWebUIScheduler:
             if updated_chat:
                 logger.info(f"Task message sent to chat {chat.id}")
                 
-                # Trigger AI response by calling the API
+                # Emit WebSocket event to refresh chat list in UI
+                await self.emit_new_chat_event(updated_chat)
+
+                # Trigger AI response via standard chat pipeline so UI updates stream
                 try:
-                    await self.trigger_ai_response(chat.id, formatted_prompt)
+                    await self.trigger_ai_response(chat.id, message_id)
                     logger.info(f"AI response triggered for chat {chat.id}")
                 except Exception as e:
                     logger.error(f"Failed to trigger AI response: {e}")
+
+                # System notifications disabled by request
             
             # Update task execution info
             await self.update_task_after_execution(task)
@@ -173,6 +208,8 @@ class OpenWebUIScheduler:
         except Exception as e:
             logger.error(f"Error in execute_task: {e}")
             raise
+
+    
     
     async def update_task_after_execution(self, task: Dict[str, Any]):
         """Update task after successful execution"""
@@ -323,14 +360,42 @@ class OpenWebUIScheduler:
         except Exception as e:
             logger.error(f"Error saving AI response to chat: {e}")
     
-    async def trigger_ai_response(self, chat_id: str, message: str):
-        """Trigger AI response by calling the OpenWebUI API"""
+    async def trigger_ai_response(self, chat_id: str, message_id: str):
+        """Trigger AI response by calling the OpenWebUI API using the standard pipeline.
+        Uses chat_id and message_id so websocket events update the exact message.
+        """
         try:
             # Get the chat to have the full context
             chat = Chats.get_chat_by_id(chat_id)
             if not chat:
                 logger.error(f"Chat {chat_id} not found")
                 return
+            
+            # Get the full model configuration including tools
+            model = Models.get_model_by_id("soren")
+            model_params = {}
+            tool_ids = []
+            
+            if model:
+                if hasattr(model, 'params') and model.params:
+                    model_params = model.params
+                    logger.info(f"Model params: {model_params}")
+                
+                # Check if model has tool_ids in params or meta
+                if hasattr(model, 'meta') and model.meta:
+                    # Frontend uses camelCase: toolIds
+                    if 'toolIds' in model.meta:
+                        tool_ids = model.meta.get('toolIds', [])
+                    # Fallback to snake_case if exists
+                    elif 'tool_ids' in model.meta:
+                        tool_ids = model.meta.get('tool_ids', [])
+                
+                # Also check params for tool_ids
+                if not tool_ids and 'tool_ids' in model_params:
+                    tool_ids = model_params.get('tool_ids', [])
+                
+                logger.info(f"Found tool_ids: {tool_ids}")
+                logger.info(f"Full model object: {model.__dict__ if hasattr(model, '__dict__') else 'No __dict__'}")
             
             # Call the OpenWebUI OpenAI endpoint
             async with aiohttp.ClientSession() as session:
@@ -344,20 +409,31 @@ class OpenWebUIScheduler:
                 # Build messages array from chat history
                 messages = []
                 if chat.chat.get("history", {}).get("messages", {}):
-                    for msg_id, msg in chat.chat["history"]["messages"].items():
+                    for _msg_id, msg in chat.chat["history"]["messages"].items():
                         messages.append({
                             "role": msg.get("role", "user"),
-                            "content": msg.get("content", "")
+                            "content": msg.get("content", ""),
                         })
-                
+
+                # Build payload targeting the specific message in the chat via id/chat_id
                 payload = {
                     "model": "soren",
-                    "messages": messages,
                     "stream": False,
-                    "metadata": {
-                        "chat_id": chat_id
-                    }
+                    "tool_ids": tool_ids,
+                    "chat_id": chat_id,
+                    "id": message_id,
+                    "messages": messages,
                 }
+                
+                # Add model params including tools if available
+                if model_params:
+                    # If there are tools defined in the model params, include them
+                    if "tools" in model_params:
+                        payload["tools"] = model_params["tools"]
+                    # Include other relevant params
+                    for key in ["temperature", "max_tokens", "top_p", "frequency_penalty", "presence_penalty"]:
+                        if key in model_params:
+                            payload[key] = model_params[key]
                 
                 logger.info(f"Sending request to trigger AI response for chat {chat_id}")
                 logger.info(f"Request URL: {url}")
@@ -366,33 +442,104 @@ class OpenWebUIScheduler:
                 async with session.post(url, json=payload, headers=headers) as response:
                     logger.info(f"Response status: {response.status}")
                     response_text = await response.text()
-                    
+
                     if response.status == 200:
+                        # Try to persist assistant message so it's visible when opening later
                         try:
                             result = json.loads(response_text)
                             logger.info(f"AI response received for chat {chat_id}")
                             logger.info(f"Response preview: {str(result)[:200]}...")
-                            
-                            # Extract the AI response content
+
                             if result.get("choices") and len(result["choices"]) > 0:
-                                ai_message = result["choices"][0]["message"]["content"]
-                                
-                                # Add the AI response to the chat
-                                await self.add_ai_response_to_chat(chat_id, ai_message)
-                                logger.info(f"AI response added to chat {chat_id}")
+                                ai_message = result["choices"][0]["message"].get("content", "")
+                                if ai_message:
+                                    await self.add_ai_response_to_chat(chat_id, ai_message)
+                                    logger.info(f"AI response added to chat {chat_id}")
+
+                                    updated_chat = Chats.get_chat_by_id(chat_id)
+                                    if updated_chat:
+                                        await self.emit_chat_update_event(updated_chat)
                             else:
                                 logger.error(f"No choices in response: {result}")
-                                
                         except Exception as e:
-                            logger.error(f"Failed to parse response JSON: {e}")
+                            logger.error(f"Failed to parse or save response JSON: {e}")
                             logger.error(f"Response text: {response_text[:500]}")
                     else:
                         logger.error(f"API request failed with status {response.status}")
                         logger.error(f"Error response: {response_text[:500]}")
-                        
+                
         except Exception as e:
             logger.error(f"Error triggering AI response: {e}")
             # Don't raise, just log - the message is still in the chat
+    
+    async def emit_new_chat_event(self, chat):
+        """Emit WebSocket event to notify about new chat"""
+        try:
+            # Get user sessions from the socket pool
+            from open_webui.socket.main import USER_POOL
+            
+            user_sessions = USER_POOL.get(self.user_id, [])
+            if not user_sessions:
+                logger.info(f"No active sessions for user {self.user_id}")
+                return
+            
+            # Emit chat:new event to all user sessions
+            for session_id in user_sessions:
+                await sio.emit(
+                    "chat:new",
+                    {
+                        "chat": {
+                            "id": chat.id,
+                            "title": chat.title,
+                            "updated_at": chat.updated_at,
+                            "created_at": chat.created_at,
+                            "archived": chat.archived,
+                            "pinned": chat.pinned,
+                            "meta": chat.meta
+                        }
+                    },
+                    to=session_id
+                )
+            
+            logger.info(f"Emitted chat:new event for chat {chat.id} to {len(user_sessions)} sessions")
+            
+        except Exception as e:
+            logger.error(f"Error emitting chat event: {e}")
+            # Don't fail the task execution if WebSocket fails
+    
+    async def emit_chat_update_event(self, chat):
+        """Emit WebSocket event to notify about chat update"""
+        try:
+            # Get user sessions from the socket pool
+            from open_webui.socket.main import USER_POOL
+            
+            user_sessions = USER_POOL.get(self.user_id, [])
+            if not user_sessions:
+                logger.info(f"No active sessions for user {self.user_id}")
+                return
+            
+            # Emit chat:update event to all user sessions
+            for session_id in user_sessions:
+                await sio.emit(
+                    "chat:update",
+                    {
+                        "chat": {
+                            "id": chat.id,
+                            "title": chat.title,
+                            "updated_at": chat.updated_at,
+                            "created_at": chat.created_at,
+                            "archived": chat.archived,
+                            "pinned": chat.pinned,
+                            "meta": chat.meta
+                        }
+                    },
+                    to=session_id
+                )
+            
+            logger.info(f"Emitted chat:update event for chat {chat.id} to {len(user_sessions)} sessions")
+            
+        except Exception as e:
+            logger.error(f"Error emitting chat update event: {e}")
 
 
 # Global instance

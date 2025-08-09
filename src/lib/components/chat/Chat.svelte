@@ -938,6 +938,23 @@
 				params = chatContent?.params ?? {};
 				chatFiles = chatContent?.files ?? [];
 
+				// Ensure default tools are activated when opening an existing chat
+				// Priority: chat-specific meta.toolIds -> model meta.toolIds
+				if ((selectedToolIds?.length ?? 0) === 0) {
+					const chatToolIds = (chatContent?.meta?.toolIds ?? chatContent?.meta?.tool_ids ?? []) as string[];
+					if (chatToolIds.length > 0) {
+						if (!$tools) {
+							tools.set(await getTools(localStorage.token));
+						}
+						selectedToolIds = [
+							...new Set(chatToolIds.filter((id) => $tools.find((t) => t.id === id)))
+						];
+					} else {
+						// Fallback to model defaults
+						await setToolIds();
+					}
+				}
+
 				autoScroll = true;
 				await tick();
 

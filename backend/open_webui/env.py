@@ -5,6 +5,7 @@ import os
 import pkgutil
 import sys
 import shutil
+import time
 from uuid import uuid4
 from pathlib import Path
 from cryptography.hazmat.primitives import serialization
@@ -32,6 +33,17 @@ try:
     load_dotenv(find_dotenv(str(BASE_DIR / ".env")))
 except ImportError:
     print("dotenv not installed, skipping...")
+
+# Apply timezone from env if provided (e.g., TZ=America/Santo_Domingo)
+TZ = os.environ.get("TZ")
+if TZ:
+    try:
+        os.environ["TZ"] = TZ
+        time.tzset()
+        print(f"Timezone set to {TZ}")
+    except Exception:
+        # tzset may not be available on all platforms; ignore if not supported
+        pass
 
 DOCKER = os.environ.get("DOCKER", "False").lower() == "true"
 

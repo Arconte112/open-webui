@@ -7,7 +7,7 @@
 
 	import Modal from '$lib/components/common/Modal.svelte';
 	import AddMemoryModal from './AddMemoryModal.svelte';
-	import { deleteMemoriesByUserId, deleteMemoryById, getMemories } from '$lib/apis/memories';
+	import { clearExternalMemories, deleteExternalMemory, getExternalMemories } from '$lib/apis/soren_memories';
 	import Tooltip from '$lib/components/common/Tooltip.svelte';
 	import { error } from '@sveltejs/kit';
 	import EditMemoryModal from './EditMemoryModal.svelte';
@@ -30,7 +30,7 @@
 	let showClearConfirmDialog = false;
 
 	let onClearConfirmed = async () => {
-		const res = await deleteMemoriesByUserId(localStorage.token).catch((error) => {
+		const res = await clearExternalMemories(localStorage.token).catch((error) => {
 			toast.error(`${error}`);
 			return null;
 		});
@@ -44,7 +44,7 @@
 
 	$: if (show && memories.length === 0 && loading) {
 		(async () => {
-			memories = await getMemories(localStorage.token);
+			memories = await getExternalMemories(localStorage.token);
 			loading = false;
 		})();
 	}
@@ -101,9 +101,15 @@
 												</div>
 											</td>
 											<td class=" px-3 py-1 hidden md:flex h-[2.5rem]">
-												<div class="my-auto whitespace-nowrap">
-													{dayjs(memory.updated_at * 1000).format('LLL')}
-												</div>
+																<div class="my-auto whitespace-nowrap">
+																	{#if memory.updated_at_epoch}
+																		{dayjs(memory.updated_at_epoch * 1000).format('LLL')}
+																	{:else if memory.updated_at}
+																		{dayjs(memory.updated_at).format('LLL')}
+																	{:else}
+																		—
+																	{/if}
+																</div>
 											</td>
 											<td class="px-3 py-1">
 												<div class="flex justify-end w-full">
@@ -136,7 +142,7 @@
 														<button
 															class="self-center w-fit text-sm px-2 py-2 hover:bg-black/5 dark:hover:bg-white/5 rounded-xl"
 															on:click={async () => {
-																const res = await deleteMemoryById(
+																const res = await deleteExternalMemory(
 																	localStorage.token,
 																	memory.id
 																).catch((error) => {
@@ -146,7 +152,7 @@
 
 																if (res) {
 																	toast.success($i18n.t('Memory deleted successfully'));
-																	memories = await getMemories(localStorage.token);
+																	memories = await getExternalMemories(localStorage.token);
 																}
 															}}
 														>
@@ -217,7 +223,7 @@
 <AddMemoryModal
 	bind:show={showAddMemoryModal}
 	on:save={async () => {
-		memories = await getMemories(localStorage.token);
+		memories = await getExternalMemories(localStorage.token);
 	}}
 />
 
@@ -225,6 +231,6 @@
 	bind:show={showEditMemoryModal}
 	memory={selectedMemory}
 	on:save={async () => {
-		memories = await getMemories(localStorage.token);
+		memories = await getExternalMemories(localStorage.token);
 	}}
 />

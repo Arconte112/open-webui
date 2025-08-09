@@ -1,6 +1,5 @@
 <script lang="ts">
-	import Switch from '$lib/components/common/Switch.svelte';
-	import { config, models, settings, user } from '$lib/stores';
+    import { config, models, settings, user } from '$lib/stores';
 	import { createEventDispatcher, onMount, getContext, tick } from 'svelte';
 	import { toast } from 'svelte-sonner';
 	import ManageModal from './Personalization/ManageModal.svelte';
@@ -13,12 +12,7 @@
 
 	let showManageModal = false;
 
-	// Addons
-	let enableMemory = false;
-
-	onMount(async () => {
-		enableMemory = $settings?.memory ?? false;
-	});
+    // Memory feature is always enabled and managed via external DB
 </script>
 
 <ManageModal bind:show={showManageModal} />
@@ -32,28 +26,12 @@
 >
 	<div class="py-1 overflow-y-scroll max-h-[28rem] lg:max-h-full">
 		<div>
-			<div class="flex items-center justify-between mb-1">
-				<Tooltip
-					content={$i18n.t(
-						'This is an experimental feature, it may not function as expected and is subject to change at any time.'
-					)}
-				>
-					<div class="text-sm font-medium">
-						{$i18n.t('Memory')}
-
-						<span class=" text-xs text-gray-500">({$i18n.t('Experimental')})</span>
-					</div>
-				</Tooltip>
-
-				<div class="">
-					<Switch
-						bind:state={enableMemory}
-						on:change={async () => {
-							saveSettings({ memory: enableMemory });
-						}}
-					/>
-				</div>
-			</div>
+        <div class="flex items-center justify-between mb-1">
+            <div class="text-sm font-medium">
+                {$i18n.t('Memory')}
+                <span class=" text-xs text-gray-500">({$i18n.t('Always On')})</span>
+            </div>
+        </div>
 		</div>
 
 		<div class="text-xs text-gray-600 dark:text-gray-400">

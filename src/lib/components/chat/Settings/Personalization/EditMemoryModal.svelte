@@ -1,8 +1,8 @@
-<script>
+<script lang="ts">
 	import { createEventDispatcher, getContext } from 'svelte';
 	import { toast } from 'svelte-sonner';
 
-	import { updateMemoryById } from '$lib/apis/memories';
+	import { updateExternalMemory } from '$lib/apis/soren_memories';
 
 	import Spinner from '$lib/components/common/Spinner.svelte';
 	import Modal from '$lib/components/common/Modal.svelte';
@@ -17,19 +17,47 @@
 
 	let loading = false;
 	let content = '';
+	let importance: number = 5;
+	let tagsText: string = '';
+	let metadataText: string = '';
 
 	$: if (show) {
 		setContent();
 	}
 
 	const setContent = () => {
-		content = memory.content;
+		content = memory?.content || '';
+		importance = memory?.importance ?? 5;
+		tagsText = (memory?.tags || []).join(', ');
+		metadataText = memory?.metadata ? JSON.stringify(memory.metadata, null, 2) : '';
 	};
 
 	const submitHandler = async () => {
 		loading = true;
 
-		const res = await updateMemoryById(localStorage.token, memory.id, content).catch((error) => {
+		let tags: string[] = tagsText
+			.split(',')
+			.map((t) => t.trim())
+			.filter((t) => t.length > 0);
+		let metadata: any = undefined;
+		if (metadataText && metadataText.trim().length > 0) {
+			try {
+				metadata = JSON.parse(metadataText);
+			} catch (e) {
+				toast.error($i18n.t('Invalid JSON in metadata'));
+				loading = false;
+				return;
+			}
+		}
+
+		const res = await updateExternalMemory(
+			localStorage.token,
+			memory.id,
+			content,
+			importance,
+			tags,
+			metadata
+		).catch((error) => {
 			toast.error(`${error}`);
 
 			return null;
@@ -71,17 +99,40 @@
 					}}
 				>
 					<div class="">
-						<textarea
-							bind:value={content}
-							class=" bg-transparent w-full text-sm rounded-xl p-3 outline outline-1 outline-gray-100 dark:outline-gray-800"
-							rows="6"
-							style="resize: vertical;"
-							placeholder={$i18n.t('Enter a detail about yourself for your LLMs to recall')}
-						/>
-
-						<div class="text-xs text-gray-500">
-							ⓘ {$i18n.t('Refer to yourself as "User" (e.g., "User is learning Spanish")')}
+					<div class="space-y-3">
+						<div>
+							<label class="block mb-1 text-xs text-gray-500">{$i18n.t('Content')}</label>
+							<textarea
+								bind:value={content}
+								class=" bg-transparent w-full text-sm rounded-xl p-3 outline outline-1 outline-gray-100 dark:outline-gray-800"
+								rows="5"
+								style="resize: vertical;"
+								placeholder={$i18n.t('Enter a detail for memory storage')}
+							/>
 						</div>
+
+						<div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+							<div>
+								<label class="block mb-1 text-xs text-gray-500">{$i18n.t('Importance (1-10)')}</label>
+								<input type="number" min="1" max="10" bind:value={importance}
+									class=" bg-transparent w-full text-sm rounded-xl p-2 outline outline-1 outline-gray-100 dark:outline-gray-800" />
+							</div>
+							<div>
+								<label class="block mb-1 text-xs text-gray-500">{$i18n.t('Tags (comma-separated)')}</label>
+								<input type="text" bind:value={tagsText}
+									class=" bg-transparent w-full text-sm rounded-xl p-2 outline outline-1 outline-gray-100 dark:outline-gray-800" />
+							</div>
+						</div>
+
+						<div>
+							<label class="block mb-1 text-xs text-gray-500">{$i18n.t('Metadata (JSON)')}</label>
+                    <textarea bind:value={metadataText}
+                        class=" bg-transparent w-full text-sm rounded-xl p-2 outline outline-1 outline-gray-100 dark:outline-gray-800"
+                        rows="4"
+                        style="resize: vertical;"
+                        placeholder={`{"source":"user","category":"general"}`} />
+						</div>
+					</div>
 					</div>
 
 					<div class="flex justify-end pt-1 text-sm font-medium">

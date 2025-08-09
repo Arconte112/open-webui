@@ -15,6 +15,19 @@ class Tools:
         self.db_path = "/mnt/c/Users/raini/Documents/Programas/soren_def/sorendb.db"
         self.user_id = "2f1dbb34-dc80-45a1-8bd6-68c7791aefbd"
         self.timezone = pytz.timezone('America/Santo_Domingo')
+        # Ensure DB schema has expected columns
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cur = conn.cursor()
+            cur.execute("PRAGMA table_info(scheduled_tasks)")
+            cols = [c[1] for c in cur.fetchall()]
+            if 'notification_summary' not in cols:
+                cur.execute("ALTER TABLE scheduled_tasks ADD COLUMN notification_summary TEXT")
+                conn.commit()
+            conn.close()
+        except Exception:
+            # If anything fails here, create_task() will still attempt insert with available columns
+            pass
     
     def get_db_connection(self) -> sqlite3.Connection:
         """Get a connection to the scheduler database"""
@@ -25,6 +38,7 @@ class Tools:
     def create_task(
         self,
         task_name: str,
+        notification_summary: str,
         prompt: str,
         frequency: str,
         time: Optional[str] = None,
@@ -36,6 +50,7 @@ class Tools:
         Create a new scheduled task.
         
         :param task_name: Descriptive name for the task
+        :param notification_summary: Short, user-facing text for system notifications (keep it concise)
         :param prompt: The prompt to send when task executes
         :param frequency: 'once', 'hourly', 'daily', or 'weekly'
         :param time: Time in HH:MM format for recurring tasks (e.g., "14:30")
@@ -44,6 +59,14 @@ class Tools:
         :return: Success or error message
         """
         try:
+            # Validate notification summary
+            if not notification_summary or not notification_summary.strip():
+                return "❌ 'notification_summary' is required and cannot be empty"
+            notification_summary = notification_summary.strip()
+            # Keep summaries short for toast notifications
+            if len(notification_summary) > 140:
+                notification_summary = notification_summary[:140].rstrip() + "…"
+
             # Validate frequency
             valid_frequencies = ['once', 'hourly', 'daily', 'weekly']
             if frequency not in valid_frequencies:
@@ -123,17 +146,35 @@ class Tools:
             conn = self.get_db_connection()
             cursor = conn.cursor()
             
-            cursor.execute("""
-                INSERT INTO scheduled_tasks (
-                    user_id, task_name, prompt, frequency,
-                    scheduled_time, scheduled_datetime, weekday,
-                    next_execution_at, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                self.user_id, task_name, prompt, frequency,
-                scheduled_time, scheduled_datetime, weekday_num,
-                next_execution, current_time, current_time
-            ))
+            # Build insert dynamically to tolerate DBs created before new column existed
+            cursor.execute("PRAGMA table_info(scheduled_tasks)")
+            cols = [c[1] for c in cursor.fetchall()]
+
+            if 'notification_summary' in cols:
+                cursor.execute("""
+                    INSERT INTO scheduled_tasks (
+                        user_id, task_name, notification_summary, prompt, frequency,
+                        scheduled_time, scheduled_datetime, weekday,
+                        next_execution_at, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    self.user_id, task_name, notification_summary, prompt, frequency,
+                    scheduled_time, scheduled_datetime, weekday_num,
+                    next_execution, current_time, current_time
+                ))
+            else:
+                # Fallback insert without the new column
+                cursor.execute("""
+                    INSERT INTO scheduled_tasks (
+                        user_id, task_name, prompt, frequency,
+                        scheduled_time, scheduled_datetime, weekday,
+                        next_execution_at, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    self.user_id, task_name, prompt, frequency,
+                    scheduled_time, scheduled_datetime, weekday_num,
+                    next_execution, current_time, current_time
+                ))
             
             conn.commit()
             task_id = cursor.lastrowid
@@ -151,7 +192,12 @@ class Tools:
             else:
                 exec_str = "at scheduled time"
             
-            return f"✅ Task '{task_name}' created successfully!\n📅 Will execute: {exec_str}\n🆔 Task ID: {task_id}"
+            return (
+                "✅ Task '" + task_name + "' created successfully!\n"
+                + "🔔 Summary: " + notification_summary + "\n"
+                + "📅 Will execute: " + exec_str + "\n"
+                + "🆔 Task ID: " + str(task_id)
+            )
             
         except Exception as e:
             return f"❌ Error creating task: {str(e)}"
@@ -211,6 +257,10 @@ class Tools:
                 result += f"   📅 {freq_desc}\n"
                 result += f"   ⏰ Next: {next_exec}\n"
                 result += f"   🔄 Executed: {exec_count} times\n"
+                # Notification summary (if present)
+                notif = task['notification_summary'] if 'notification_summary' in task.keys() else None
+                if notif:
+                    result += f"   🔔 Summary: {notif}\n"
                 result += f"   💬 Prompt: {task['prompt'][:50]}{'...' if len(task['prompt']) > 50 else ''}\n\n"
             
             conn.close()
@@ -328,7 +378,9 @@ class Tools:
                 weekdays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
                 result += f"**Weekday:** {weekdays[task['weekday']]}\n"
             
-            result += f"\n**Prompt:**\n{task['prompt']}\n\n"
+            if 'notification_summary' in task.keys() and task['notification_summary']:
+                result += f"**Notification Summary:** {task['notification_summary']}\n\n"
+            result += f"**Prompt:**\n{task['prompt']}\n\n"
             
             if task['next_execution_at']:
                 next_dt = datetime.fromisoformat(task['next_execution_at'])

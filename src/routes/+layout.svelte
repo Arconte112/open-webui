@@ -532,9 +532,27 @@
 			if (value) {
 				$socket?.off('chat-events', chatEventHandler);
 				$socket?.off('channel-events', channelEventHandler);
+				$socket?.off('chat:new');
+				$socket?.off('chat:update');
 
 				$socket?.on('chat-events', chatEventHandler);
 				$socket?.on('channel-events', channelEventHandler);
+				
+				// Listen for new chat creation
+				$socket?.on('chat:new', async (data) => {
+					console.log('Received chat:new event', data);
+					// Refresh the chat list to include the new chat
+					currentChatPage.set(1);
+					await chats.set(await getChatList(localStorage.token, $currentChatPage));
+				});
+				
+				// Listen for chat updates
+				$socket?.on('chat:update', async (data) => {
+					console.log('Received chat:update event', data);
+					// Refresh the chat list to update the chat
+					currentChatPage.set(1);
+					await chats.set(await getChatList(localStorage.token, $currentChatPage));
+				});
 
 				// Set up the token expiry check
 				if (tokenTimer) {
@@ -544,6 +562,8 @@
 			} else {
 				$socket?.off('chat-events', chatEventHandler);
 				$socket?.off('channel-events', channelEventHandler);
+				$socket?.off('chat:new');
+				$socket?.off('chat:update');
 			}
 		});
 
